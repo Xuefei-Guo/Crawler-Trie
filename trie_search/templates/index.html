@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Search Index</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+    <div class="container">
+        <div class="header-row">
+            <h1>Search Index</h1>
+            <button id="settings-btn" class="text-btn">Edit URL</button>
+        </div>
+
+        <div class="search-box">
+            <div class="search-container">
+                <form onsubmit="return false">
+                    <input type="text" id="search-input" placeholder="Start typing to search..." autocomplete="off" autofocus>
+                </form>
+                <ul id="suggestions" class="suggestions-box"></ul>
+            </div>
+        </div>
+
+        <div id="results-container" style="display: none;">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 30%;">Word</th>
+                        <th style="width: 70%;">Found on Pages</th>
+                    </tr>
+                </thead>
+                <tbody id="results-body">
+                </tbody>
+            </table>
+        </div>
+        
+        <p id="no-results" class="no-results" style="display: none;">
+            No results found.
+        </p>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>Crawler Settings</h2>
+            <div class="form-group">
+                <label for="url-input">URL:</label>
+                <input type="text" id="url-input" placeholder="https://example.com">
+            </div>
+            <div class="form-group">
+                <label for="depth-input">Depth:</label>
+                <input type="number" id="depth-input" min="0" max="10" value="2">
+            </div>
+            <div id="build-status" class="status-msg"></div>
+            <button id="save-settings-btn" class="primary-btn">Save & Rebuild Index</button>
+        </div>
+    </div>
+
+    <script>
+        const searchInput = document.getElementById('search-input');
+        const suggestionsBox = document.getElementById('suggestions');
+        const resultsContainer = document.getElementById('results-container');
+        const resultsBody = document.getElementById('results-body');
+        const noResultsMsg = document.getElementById('no-results');
+
+        let debounceTimer;
+
+        // Function to perform search
+        function performSearch(query) {
+            if (query.length === 0) {
+                resultsContainer.style.display = 'none';
+                noResultsMsg.style.display = 'none';
+                return;
+            }
+
+            fetch(`/search?query=${encodeURIComponent(query)}`)
+                .then(response => response.json())
+                .then(data => {
+                    resultsBody.innerHTML = ''; // clear table
+                    if (data.length > 0) {
+                        resultsContainer.style.display = 'block';
+                        noResultsMsg.style.display = 'none';
+                        
+                        for (const item of data) {
+                            const row = document.createElement('tr');
+                            
+                            const wordCell = document.createElement('td');
+                            wordCell.className = "word-cell";
+                            wordCell.innerHTML = `${item.word}`;
+                            row.appendChild(wordCell);
+
+                            const urlCell = document.createElement('td');
+                            for (const url of item.urls) {
+                                const entryDiv = document.createElement('div');
+                                entryDiv.className = "url-entry";
+                                entryDiv.innerHTML = `<a href="${url}">${url}</a>`;
+                                urlCell.appendChild(entryDiv);
+                            }
+                            row.appendChild(urlCell);
+
+                            resultsBody.appendChild(row);
+                        }
+                    } else {
+                        resultsContainer.style.display = 'none';
+                        noResultsMsg.style.display = 'block';
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        // Function to fetch suggestions
+        function fetchSuggestions(prefix) {
+            if (prefix.length === 0) {
+                suggestionsBox.style.display = 'none';
+                return;
+            }
+
+            fetch(`/autocomplete?q=${encodeURIComponent(prefix)}`)
+                .then(response => response.json())
+                .then(data => {
+                    suggestionsBox.innerHTML = '';
+                    if (data.length > 0) {
+                        suggestionsBox.style.display = 'block';
+                        for (const word of data) {
+                            const li = document.createElement('li');
+                            li.className = 'suggestion-item';
+                            li.textContent = word;
+                            li.onclick = () => {
+                                searchInput.value = word;
+                                suggestionsBox.style.display = 'none';
+                                performSearch(word);
+                            };
+                            suggestionsBox.appendChild(li);
+                        }
+                    } else {
+                        suggestionsBox.style.display = 'none';
+                    }
+                })
+                .catch(error => console.error('Error fetching suggestions:', error));
+        }
+
+        // Settings Modal Logic
+        const modal = document.getElementById("settings-modal");
+        const btn = document.getElementById("settings-btn");
+        const span = document.getElementsByClassName("close")[0];
+        const saveBtn = document.getElementById("save-settings-btn");
+        const urlInput = document.getElementById("url-input");
+        const depthInput = document.getElementById("depth-input");
+        const statusMsg = document.getElementById("build-status");
+
+        // Open modal
+        btn.onclick = function() {
+            modal.style.display = "block";
+            fetchConfig();
+        }
+
+        // Close modal
+        span.onclick = function() {
+            modal.style.display = "none";
+        }
+
+        window.onclick = function(event) {
+            if (event.target == modal) {
+                modal.style.display = "none";
+            }
+        }
+
+        function fetchConfig() {
+            fetch('/api/config')
+                .then(response => response.json())
+                .then(data => {
+                    urlInput.value = data.config.url;
+                    depthInput.value = data.config.depth;
+                    if (data.is_building) {
+                        statusMsg.textContent = "Status: " + data.status;
+                        saveBtn.disabled = true;
+                    } else {
+                        statusMsg.textContent = "";
+                        saveBtn.disabled = false;
+                    }
+                });
+        }
+
+        saveBtn.onclick = function() {
+            const url = urlInput.value;
+            const depth = Number.parseInt(depthInput.value);
+            
+            statusMsg.textContent = "Starting rebuild...";
+            saveBtn.disabled = true;
+
+            fetch('/api/config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ url: url, depth: depth }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    statusMsg.textContent = "Error: " + data.error;
+                    saveBtn.disabled = false;
+                } else {
+                    statusMsg.textContent = "Rebuild started. This may take a while...";
+                    // Poll for status
+                    pollStatus();
+                }
+            })
+            .catch((error) => {
+                console.error('Error:', error);
+                statusMsg.textContent = "Error saving settings.";
+                saveBtn.disabled = false;
+            });
+        }
+
+        function pollStatus() {
+            const interval = setInterval(() => {
+                fetch('/api/config')
+                    .then(response => response.json())
+                    .then(data => {
+                        statusMsg.textContent = "Status: " + data.status;
+                        if (!data.is_building) {
+                            clearInterval(interval);
+                            saveBtn.disabled = false;
+                            if (data.status.includes("successfully")) {
+                                setTimeout(() => {
+                                    modal.style.display = "none";
+                                    statusMsg.textContent = "";
+                                    // Trigger re-search if there is a query
+                                    const currentQuery = searchInput.value.trim();
+                                    if (currentQuery) {
+                                        performSearch(currentQuery);
+                                    }
+                                }, 1500);
+                            }
+                        }
+                    });
+            }, 1000);
+        }
+
+        // listen for input changes
+        searchInput.addEventListener('input', function() {
+            const query = searchInput.value.trim();
+            
+            // Clear previous timer
+            clearTimeout(debounceTimer);
+
+            // Debounce search and autocomplete
+            debounceTimer = setTimeout(() => {
+                fetchSuggestions(query);
+                performSearch(query);
+            }, 300);
+        });
+
+        // Hide suggestions when clicking outside
+        document.addEventListener('click', function(e) {
+            if (e.target !== searchInput && e.target !== suggestionsBox) {
+                suggestionsBox.style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>
