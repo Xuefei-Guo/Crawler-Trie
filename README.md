@@ -1,4 +1,4 @@
-# Trie Search Engine
+# TrieSpider
 
 A high-performance, asynchronous web crawler and search engine built with Python. It indexes websites using a Trie data structure to provide fast wildcard search and real-time autocomplete capabilities.
 
@@ -56,12 +56,12 @@ A high-performance, asynchronous web crawler and search engine built with Python
 
 1. **Build the image**:
    ```bash
-   docker build -t trie-search .
+   docker build -t triespider .
    ```
 
 2. **Run the container**:
    ```bash
-   docker run -p 5000:5000 trie-search
+   docker run -p 5000:5000 triespider
    ```
 
 ## 🧪 Running Tests
